@@ -4,7 +4,7 @@
 
 <div align="center">
 
-<img src="assets/craverush-banner.jpg" alt="CraveRush Banner" width="100%">
+<img src="assets/craverush-banner.png" alt="CraveRush Banner" width="100%">
 
 <br><br>
 
