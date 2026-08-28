@@ -377,7 +377,7 @@ CraveRush combines **visual design + usability + responsiveness** to create a fo
 
 <div align="center">
 
-<img src="assets/craverush-logo.png" alt="CraveRush Logo" width="180">
+<img src="assets/logo.png" alt="CraveRush Logo" width="180">
 
 ### **CRAVERUSH**
 
