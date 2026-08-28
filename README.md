@@ -12,7 +12,7 @@
 
 <br>
 
-[🌐 Live Demo](#) • [📸 Screenshots](#screenshots) • [✨ Features](#features) • [🚀 Getting Started](#getting-started)
+[🌐 Live Demo](https://crave-rush.vercel.app) • [📸 Screenshots](#screenshots) • [✨ Features](#features) • [🚀 Getting Started](#getting-started)
 
 <br>
 
