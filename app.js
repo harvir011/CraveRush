@@ -752,24 +752,36 @@ const REVIEWS = [
   { id: "seed-9", restaurantId: "bk", name: "Devansh Oberoi", city: "Hyderabad", rating: 4, text: "Whopper combo was fresh and the tracking map made it easy to know exactly when to head downstairs.", date: "2026-03-09" }
 ];
 
+// Safe JSON storage reader: a malformed or manually edited localStorage value
+// should not stop the entire website from starting.
+function readStoredJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch (error) {
+    console.warn(`CraveRush could not read stored data for "${key}". Using the default value.`, error);
+    return fallback;
+  }
+}
+
 // App State
 let state = {
-  cart: JSON.parse(localStorage.getItem("craverush_cart")) || [],
+  cart: readStoredJSON("craverush_cart", []),
   appliedCoupon: localStorage.getItem("craverush_coupon") || null,
   discountAmount: 0,
   activeRestaurantFilter: "all",
   activeDishCategory: "All items",
   activeVegFilter: "all", // "all", "veg", "nonveg"
   searchQuery: "",
-  user: JSON.parse(localStorage.getItem("craverush_user")) || null,
+  user: readStoredJSON("craverush_user", null),
   location: localStorage.getItem("craverush_location") || "Sector 17, Chandigarh",
-  activeOrder: JSON.parse(localStorage.getItem("craverush_active_order")) || null,
-  orderHistory: JSON.parse(localStorage.getItem("craverush_order_history")) || [],
-  userReviews: JSON.parse(localStorage.getItem("craverush_user_reviews")) || [],
+  activeOrder: readStoredJSON("craverush_active_order", null),
+  orderHistory: readStoredJSON("craverush_order_history", []),
+  userReviews: readStoredJSON("craverush_user_reviews", []),
   reviewFilter: "all",
   trackingTimer: null,
-  addresses: JSON.parse(localStorage.getItem("craverush_addresses")) || null,
-  wallet: JSON.parse(localStorage.getItem("craverush_wallet")) || null,
+  addresses: readStoredJSON("craverush_addresses", null),
+  wallet: readStoredJSON("craverush_wallet", null),
   activeAccountTab: "profile",
   editingAddressId: null
 };
@@ -795,6 +807,41 @@ if (!state.wallet) {
   };
   localStorage.setItem("craverush_wallet", JSON.stringify(state.wallet));
 }
+
+// Promise-based catalog service for the current front-end-only version.
+// The short delay makes the loading state observable during a demo; when a
+// backend is introduced, this function can be replaced with fetch() calls.
+function loadCatalogAsync() {
+  return new Promise((resolve, reject) => {
+    window.setTimeout(() => {
+      const catalogIsValid = Array.isArray(RESTAURANTS) && RESTAURANTS.length > 0 &&
+        Array.isArray(DISHES) && DISHES.length > 0;
+      if (!catalogIsValid) {
+        reject(new Error("The restaurant and dish catalog could not be loaded."));
+        return;
+      }
+      resolve({ restaurants: RESTAURANTS, dishes: DISHES });
+    }, 180);
+  });
+}
+
+// Simulates asynchronous order confirmation for this demo (no real payment is
+// taken). It validates the order before the app commits it to localStorage.
+function processDemoOrder(order) {
+  return new Promise((resolve, reject) => {
+    window.setTimeout(() => {
+      const validOrder = order && Array.isArray(order.items) && order.items.length > 0 &&
+        Number.isFinite(order.total) && order.total > 0;
+      if (!validOrder) {
+        reject(new Error("We could not confirm this order. Please review your bag and try again."));
+        return;
+      }
+      resolve(order);
+    }, 700);
+  });
+}
+
+let orderProcessing = false;
 
 // DOM Elements
 const loader = document.getElementById("loader");
@@ -846,47 +893,44 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Initialize UI Renderers
-  renderRestaurants();
-  renderDishes();
-  renderHomeHighlights();
-  updateCartUI();
-  updateUserUI();
+  // Load the catalog asynchronously before rendering UI. Promise.catch gives
+  // the visitor a clear fallback instead of leaving a blank page on failure.
+  loadCatalogAsync()
+    .then(() => {
+      // Initialize UI Renderers
+      renderRestaurants();
+      renderDishes();
+      renderHomeHighlights();
+      updateCartUI();
+      updateUserUI();
 
-  // Setup Event Listeners
-  setupEventListeners();
+      // Setup Event Listeners
+      setupEventListeners();
 
-  // If we arrived here via a search suggestion (?dish=, ?rest=, or ?q=), honor it
-  handleSearchDeepLink();
+      // If we arrived here via a search suggestion (?dish=, ?rest=, or ?q=), honor it
+      handleSearchDeepLink();
 
-  // An order that already reached "Delivered" (statusStep 4) isn't an active
-  // order anymore — don't let it keep reporting as one on Live Track.
-  if (state.activeOrder && state.activeOrder.statusStep >= 4) {
-    state.activeOrder = null;
-    localStorage.removeItem("craverush_active_order");
-  }
+      // A delivered order is no longer active.
+      if (state.activeOrder && state.activeOrder.statusStep >= 4) {
+        state.activeOrder = null;
+        localStorage.removeItem("craverush_active_order");
+      }
 
-  // Check for active order tracking
-  if (state.activeOrder) {
-    startOrderTrackingTimer();
-  }
+      if (state.activeOrder) startOrderTrackingTimer();
 
-  // Just placed an order on checkout.html and got redirected here — open
-  // Live Track automatically so the user lands straight on it.
-  if (sessionStorage.getItem("craverush_just_ordered") === "1") {
-    sessionStorage.removeItem("craverush_just_ordered");
-    if (state.activeOrder) openOrderTracking();
-  }
+      // Open Live Track after returning from a successful checkout.
+      if (sessionStorage.getItem("craverush_just_ordered") === "1") {
+        sessionStorage.removeItem("craverush_just_ordered");
+        if (state.activeOrder) openOrderTracking();
+      }
 
-  // If we're on the dedicated Orders page, render the current + past orders.
-  if (document.getElementById("orders-page-root")) {
-    renderOrdersPage();
-  }
-
-  // If we're on the dedicated Reviews page, render ratings + review feed.
-  if (document.getElementById("reviews-page-root")) {
-    renderReviewsPage();
-  }
+      if (document.getElementById("orders-page-root")) renderOrdersPage();
+      if (document.getElementById("reviews-page-root")) renderReviewsPage();
+    })
+    .catch(error => {
+      console.error("CraveRush initialization failed:", error);
+      showToast("We couldn't load the menu right now. Please refresh and try again.");
+    });
 });
 
 // ---------- RENDERERS ---------- //
@@ -974,6 +1018,7 @@ function renderRestaurants() {
     const matchesSearch = r.name.toLowerCase().includes(query) || r.cuisines.toLowerCase().includes(query);
     return matchesCategory && matchesSearch;
   });
+  sortItems(filtered, state.restaurantSort || "default");
 
   if (filtered.length === 0) {
     restaurantContainer.innerHTML = `
@@ -1001,6 +1046,7 @@ function renderDishes() {
     const matchesSearch = d.name.toLowerCase().includes(query) || d.restaurantName.toLowerCase().includes(query) || d.category.toLowerCase().includes(query);
     return matchesCat && matchesVeg && matchesSearch;
   });
+  sortItems(filtered, state.dishSort || "default");
 
   if (filtered.length === 0) {
     dishContainer.innerHTML = `
@@ -1067,6 +1113,7 @@ function updateCartUI() {
           <span>${item.quantity}</span>
           <button onclick="updateQuantity('${item.id}', 1)">+</button>
         </div>
+        <button class="cart-item-remove" onclick="removeFromCart('${item.id}')" aria-label="Remove ${item.name}" title="Remove"><i class="fa-regular fa-trash-can"></i></button>
       </div>
     `).join("");
   }
@@ -1082,9 +1129,20 @@ function updateCartUI() {
   }
   state.discountAmount = discount;
 
-  const deliveryFee = subtotal > 0 ? (subtotal >= 499 ? 0 : 49) : 0;
+  const deliveryFee = subtotal > 0 ? ((subtotal >= 499 || isCravePassActive()) ? 0 : 49) : 0;
   const taxes = subtotal > 0 ? Math.round(subtotal * 0.05) : 0;
   const grandTotal = Math.max(0, subtotal - discount + deliveryFee + taxes);
+  const cartDeliveryEl = document.getElementById("cart-delivery");
+  if (cartDeliveryEl) cartDeliveryEl.textContent = deliveryFee === 0 ? "FREE" : `₹${deliveryFee}`;
+  const cartTaxesEl = document.getElementById("cart-taxes");
+  if (cartTaxesEl) cartTaxesEl.textContent = `₹${taxes}`;
+  const clearBtn = document.getElementById("cart-clear-btn");
+  if (clearBtn) clearBtn.style.display = state.cart.length ? "inline-flex" : "none";
+  const couponTag = document.getElementById("coupon-applied-tag");
+  if (couponTag) {
+    couponTag.style.display = state.appliedCoupon ? "flex" : "none";
+    couponTag.innerHTML = state.appliedCoupon ? `<span><i class="fa-solid fa-tag"></i> ${state.appliedCoupon} applied</span><button type="button" onclick="removeCoupon()">Remove</button>` : "";
+  }
 
   if (cartSubtotalEl) cartSubtotalEl.textContent = `₹${subtotal}`;
   if (cartDiscountRow && cartDiscountEl) {
@@ -1134,6 +1192,7 @@ function addToCart(dishId) {
     state.cart.push({ ...dish, quantity: 1 });
   }
 
+  localStorage.setItem("craverush_cart", JSON.stringify(state.cart));
   showToast(`Added "${dish.name}" to your bag!`);
   updateCartUI();
   renderDishes();
@@ -1156,6 +1215,7 @@ function updateQuantity(dishId, change) {
     showToast(`Removed from bag.`);
   }
 
+  localStorage.setItem("craverush_cart", JSON.stringify(state.cart));
   updateCartUI();
   renderDishes();
   renderHomeHighlights();
@@ -1174,11 +1234,22 @@ function applyCoupon() {
     return;
   }
 
+  const cartSub = state.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  if ((code === "CRAVE50" || code === "WELCOME100") && cartSub === 0) {
+    showToast("Add some food to your bag before applying a coupon.");
+    return;
+  }
+  if (code === "CRAVE50" && cartSub < 199) {
+    showToast("CRAVE50 needs a minimum order of ₹199.");
+    return;
+  }
   if (code === "CRAVE50" || code === "WELCOME100") {
     state.appliedCoupon = code;
     localStorage.setItem("craverush_coupon", code);
     showToast(`Coupon "${code}" applied successfully! 🎉`);
+    if (couponInput) couponInput.value = "";
     updateCartUI();
+    if (document.getElementById("checkout-form")) updateCheckoutTotalsUI();
   } else {
     showToast("Invalid coupon code. Try CRAVE50 or WELCOME100.");
   }
@@ -1537,7 +1608,7 @@ function computeCheckoutTotals(speed) {
     discount = Math.min(100, subtotal);
   }
 
-  const deliveryFee = speed === "express" ? 89 : (subtotal >= 499 ? 0 : 49);
+  const deliveryFee = speed === "express" ? 89 : ((subtotal >= 499 || isCravePassActive()) ? 0 : 49);
   const platformFee = subtotal > 0 ? 8 : 0;
   const taxes = Math.round(subtotal * 0.05);
   const total = Math.max(0, subtotal - discount + deliveryFee + platformFee + taxes);
@@ -1712,17 +1783,34 @@ function handlePlaceOrder(event) {
     return;
   }
 
+  const payment = validatePaymentDetails();
+  if (!payment) return;
+
   const address = { fullName, mobile, house, street, landmark, city, state: stateName, pincode };
   const saveAddress = document.getElementById("co-save-address");
-  if (saveAddress && saveAddress.checked) {
-    localStorage.setItem("craverush_saved_address", JSON.stringify(address));
-  }
 
   const speed = getSelectedRadioValue("delivery-speed", "standard");
   const paymentMethod = getSelectedRadioValue("payment-method", "cod");
   const { subtotal, discount, deliveryFee, platformFee, taxes, total } = computeCheckoutTotals(speed);
 
+  if (paymentMethod === "wallet" && state.wallet.balance < total) {
+    showToast(`Not enough CraveCash (balance ₹${state.wallet.balance}). Add money or choose another payment method.`);
+    return;
+  }
+
+  // Prevent duplicate orders while the asynchronous confirmation is running.
+  if (orderProcessing) return;
+  orderProcessing = true;
+  const submitButton = document.querySelector('#checkout-form button[type="submit"]');
+  const originalButtonHTML = submitButton ? submitButton.innerHTML : "";
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Processing order...</span>';
+  }
+  showToast("Confirming your demo order...");
+
   const order = {
+    paymentDetail: payment.label,
     orderId: "CR-" + Math.floor(100000 + Math.random() * 900000),
     items: [...state.cart],
     address,
@@ -1740,28 +1828,49 @@ function handlePlaceOrder(event) {
     estimatedMinutes: speed === "express" ? 18 : 30
   };
 
-  state.activeOrder = order;
-  localStorage.setItem("craverush_active_order", JSON.stringify(order));
+  // Promise chain: .then() commits a confirmed order, .catch() handles a
+  // rejected confirmation, and .finally() always restores the submit button.
+  processDemoOrder(order)
+    .then(confirmedOrder => {
+      if (saveAddress && saveAddress.checked) {
+        localStorage.setItem("craverush_saved_address", JSON.stringify(address));
+      }
 
-  // Record this order in the order history too, so it shows up under
-  // "Current Order" while active and stays listed under "Previous Orders"
-  // (with updated status) once it's delivered.
-  addOrderToHistory(order);
+      // Deduct wallet funds only after order confirmation succeeds.
+      if (paymentMethod === "wallet") {
+        state.wallet.balance -= total;
+        state.wallet.transactions.push({
+          id: "tx-" + Date.now(), type: "debit", amount: total, note: "Food order payment",
+          date: new Date().toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })
+        });
+        localStorage.setItem("craverush_wallet", JSON.stringify(state.wallet));
+      }
 
-  // Clear cart & coupon
-  state.cart = [];
-  state.appliedCoupon = null;
-  localStorage.removeItem("craverush_coupon");
-  updateCartUI();
+      state.activeOrder = confirmedOrder;
+      localStorage.setItem("craverush_active_order", JSON.stringify(confirmedOrder));
+      addOrderToHistory(confirmedOrder);
 
-  showToast("Order placed successfully! 🚀");
+      state.cart = [];
+      state.appliedCoupon = null;
+      localStorage.removeItem("craverush_cart");
+      localStorage.removeItem("craverush_coupon");
+      updateCartUI();
+      showToast("Order placed successfully! 🚀");
 
-  // Take the user to Live Track to watch their order, instead of leaving
-  // them sitting on the (now stale) checkout page.
-  sessionStorage.setItem("craverush_just_ordered", "1");
-  setTimeout(() => {
-    window.location.href = "index.html";
-  }, 900);
+      sessionStorage.setItem("craverush_just_ordered", "1");
+      window.setTimeout(() => { window.location.href = "index.html"; }, 900);
+    })
+    .catch(error => {
+      console.error("CraveRush order confirmation failed:", error);
+      showToast(error && error.message ? error.message : "Order confirmation failed. Please try again.");
+    })
+    .finally(() => {
+      orderProcessing = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonHTML;
+      }
+    });
 }
 
 // ---------- ORDER HISTORY (used by orders.html) ---------- //
@@ -1951,7 +2060,7 @@ function buildOrderCard(order, isActive) {
           <span class="order-card-date">${order.placedOn || ''} • ${order.placedAt || ''}</span>
         </div>
         <span class="order-status-pill status-${getStatusBadgeClass(step)}">
-          ${isActive ? getStatusTitle(step) : (step >= 4 ? 'Delivered' : getStatusTitle(step))}
+          ${order.cancelled ? 'Cancelled' : (isActive ? getStatusTitle(step) : (step >= 4 ? 'Delivered' : getStatusTitle(step)))}
         </span>
       </div>
 
@@ -1986,6 +2095,9 @@ function buildOrderCard(order, isActive) {
       <div class="order-card-footer">
         <span class="order-card-total">₹${order.total} <span style="font-weight:500; color:var(--muted-3); font-size:12px;">(${order.items.length} item${order.items.length > 1 ? 's' : ''})</span></span>
         <div class="order-card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="viewOrderBill('${order.orderId}')"><i class="fa-solid fa-file-invoice"></i> Bill</button>
+          ${isActive && step <= 2 ? `<button class="btn btn-ghost btn-sm btn-danger" onclick="cancelOrder('${order.orderId}')"><i class="fa-solid fa-ban"></i> Cancel</button>` : ''}
+          ${!isActive && step >= 4 ? `<a class="btn btn-ghost btn-sm" href="reviews.html"><i class="fa-regular fa-star"></i> Rate</a>` : ''}
           ${isActive ? `<button class="btn btn-ghost btn-sm" onclick="openOrderTracking()"><i class="fa-solid fa-location-crosshairs"></i> Track</button>` : ''}
           <button class="btn btn-solid btn-sm" onclick="reorderItems('${order.orderId}')"><i class="fa-solid fa-rotate-right"></i> Reorder</button>
         </div>
@@ -2398,30 +2510,62 @@ function switchAuthTab(tab) {
   }
 }
 
+function getAccounts() {
+  try { return JSON.parse(localStorage.getItem("craverush_accounts")) || []; } catch (e) { return []; }
+}
+function saveAccounts(list) { localStorage.setItem("craverush_accounts", JSON.stringify(list)); }
+// Simple (demo-only) password obfuscation - there is no backend, so this just
+// avoids storing the raw password text in localStorage.
+function hashPassword(pw) { return btoa(unescape(encodeURIComponent("cr::" + pw))); }
+
 function handleSignIn(e) {
   e.preventDefault();
-  const email = document.getElementById("signin-email").value;
-  const name = email.split("@")[0] || "User";
-
-  state.user = { name, email, phone: (state.user && state.user.phone) || "" };
+  const id = document.getElementById("signin-email").value.trim().toLowerCase();
+  const pwInput = e.target.querySelector('input[type="password"]');
+  const pw = pwInput ? pwInput.value : "";
+  const account = getAccounts().find(a => a.email.toLowerCase() === id || (a.phone && a.phone === id.replace(/\D/g, "").slice(-10)));
+  if (!account) {
+    showToast("No account found with that email/phone. Please sign up first.");
+    return;
+  }
+  if (account.password !== hashPassword(pw)) {
+    showToast("Incorrect password. Please try again.");
+    return;
+  }
+  state.user = { name: account.name, email: account.email, phone: account.phone || "", cravePass: account.cravePass || null };
   localStorage.setItem("craverush_user", JSON.stringify(state.user));
-
+  if (pwInput) pwInput.value = "";
   updateUserUI();
   renderAuthModal();
   closeModal("auth-modal");
-  showToast(`Welcome back, ${name}! 👋`);
+  showToast(`Welcome back, ${account.name}! 👋`);
+  updateCartUI();
 }
 
 function handleSignUp(e) {
   e.preventDefault();
-  const name = document.getElementById("signup-name").value;
-  const email = document.getElementById("signup-email").value;
+  const name = document.getElementById("signup-name").value.trim();
+  const email = document.getElementById("signup-email").value.trim();
   const phoneEl = document.getElementById("signup-phone");
-  const phone = phoneEl ? phoneEl.value : "";
+  const phone = phoneEl ? phoneEl.value.replace(/\D/g, "").slice(-10) : "";
+  const pwInput = e.target.querySelector('input[type="password"]');
+  const pw = pwInput ? pwInput.value : "";
 
-  state.user = { name, email, phone };
+  if (name.length < 2) { showToast("Please enter your full name."); return; }
+  if (!/^\d{10}$/.test(phone)) { showToast("Please enter a valid 10-digit mobile number."); return; }
+  if (pw.length < 6) { showToast("Password must be at least 6 characters."); return; }
+  const accounts = getAccounts();
+  if (accounts.some(a => a.email.toLowerCase() === email.toLowerCase())) {
+    showToast("An account with this email already exists. Please sign in.");
+    switchAuthTab("signin");
+    return;
+  }
+  accounts.push({ name, email, phone, password: hashPassword(pw), cravePass: null });
+  saveAccounts(accounts);
+
+  state.user = { name, email, phone, cravePass: null };
   localStorage.setItem("craverush_user", JSON.stringify(state.user));
-
+  if (pwInput) pwInput.value = "";
   updateUserUI();
   renderAuthModal();
   closeModal("auth-modal");
@@ -2774,3 +2918,621 @@ function updateLocationUI() {
   const label = document.getElementById("current-location-text");
   if (label) label.textContent = state.location;
 }
+
+
+/* =====================================================================
+   EXTRAS — added to make every button, form and link fully functional
+   (pure JavaScript, no frameworks)
+   ===================================================================== */
+
+// ---------- SMALL HELPERS ---------- //
+
+function isCravePassActive() {
+  const p = state.user && state.user.cravePass;
+  return !!(p && p.expires && new Date(p.expires) > new Date());
+}
+
+function sortItems(list, mode) {
+  const num = v => parseFloat(String(v).replace(/[^\d.]/g, "")) || 0;
+  if (mode === "price-asc") list.sort((a, b) => num(a.price) - num(b.price));
+  else if (mode === "price-desc") list.sort((a, b) => num(b.price) - num(a.price));
+  else if (mode === "rating") list.sort((a, b) => num(b.rating) - num(a.rating));
+  else if (mode === "time") list.sort((a, b) => num(a.time) - num(b.time));
+  else if (mode === "name") list.sort((a, b) => a.name.localeCompare(b.name));
+  return list;
+}
+
+// Generic popup (reuses the site's modal styling) for bills, forms, etc.
+function openInfoModal(title, bodyHtml) {
+  let modal = document.getElementById("cr-info-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "cr-info-modal";
+    modal.className = "modal-overlay";
+    modal.addEventListener("click", e => { if (e.target === modal) closeModal("cr-info-modal"); });
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>${title}</h3>
+        <button class="close-btn" onclick="closeModal('cr-info-modal')" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">${bodyHtml}</div>
+    </div>`;
+  openModal("cr-info-modal");
+}
+
+function saveList(key, item) {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(key)) || []; } catch (e) { list = []; }
+  list.push({ ...item, at: new Date().toISOString() });
+  localStorage.setItem(key, JSON.stringify(list));
+}
+
+function isEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+
+// ---------- CART EXTRAS ---------- //
+
+function removeFromCart(dishId) {
+  state.cart = state.cart.filter(i => i.id !== dishId);
+  showToast("Removed from bag.");
+  refreshAfterCartChange();
+}
+
+function clearCart() {
+  if (!state.cart.length) return;
+  state.cart = [];
+  state.appliedCoupon = null;
+  localStorage.removeItem("craverush_coupon");
+  showToast("Your bag has been cleared.");
+  refreshAfterCartChange();
+}
+
+function removeCoupon() {
+  state.appliedCoupon = null;
+  localStorage.removeItem("craverush_coupon");
+  showToast("Coupon removed.");
+  refreshAfterCartChange();
+}
+
+function refreshAfterCartChange() {
+  updateCartUI();
+  renderDishes();
+  renderHomeHighlights();
+  if (document.getElementById("checkout-form")) {
+    if (state.cart.length === 0) { window.location.href = "menu.html"; return; }
+    renderCheckoutSummary();
+  }
+  const m = document.getElementById("restaurant-menu-modal");
+  if (m && m.classList.contains("active")) {
+    const label = document.querySelector("#restaurant-menu-content .modal-header h3");
+    const r = label && RESTAURANTS.find(x => x.name === label.textContent);
+    if (r) openRestaurantMenu(r.id);
+  }
+}
+
+// ---------- CHECKOUT: PAYMENT DETAILS ---------- //
+
+function injectPaymentUI() {
+  const grid = document.querySelector('input[name="payment-method"]');
+  if (!grid || document.getElementById("payment-detail-panel")) return;
+  const optionGrid = grid.closest(".option-grid");
+
+  // CraveCash wallet option
+  const walletCard = document.createElement("label");
+  walletCard.className = "option-card";
+  walletCard.innerHTML = `
+    <input type="radio" name="payment-method" value="wallet">
+    <span class="option-card-title"><i class="fa-solid fa-wallet"></i> CraveCash Wallet</span>
+    <span class="option-card-sub" id="wallet-option-sub">Balance: ₹${state.wallet.balance}</span>`;
+  optionGrid.appendChild(walletCard);
+  optionGrid.classList.remove("cols-3");
+  optionGrid.classList.add("cols-4");
+
+  const panel = document.createElement("div");
+  panel.id = "payment-detail-panel";
+  panel.className = "payment-detail-panel";
+  optionGrid.parentNode.appendChild(panel);
+
+  document.querySelectorAll('input[name="payment-method"]').forEach(i =>
+    i.addEventListener("change", renderPaymentPanel));
+  renderPaymentPanel();
+}
+
+function renderPaymentPanel() {
+  const panel = document.getElementById("payment-detail-panel");
+  if (!panel) return;
+  const method = getSelectedRadioValue("payment-method", "cod");
+  const keep = id => { const el = document.getElementById(id); return el ? el.value : ""; };
+
+  if (method === "upi") {
+    panel.innerHTML = `
+      <label for="pay-upi-id">UPI ID</label>
+      <input type="text" id="pay-upi-id" class="form-control" placeholder="yourname@okhdfcbank" autocomplete="off" value="${escapeHtml(keep("pay-upi-id"))}">
+      <small>Example: 9876543210@paytm, name@oksbi</small>`;
+  } else if (method === "card") {
+    panel.innerHTML = `
+      <div class="pay-card-grid">
+        <div class="pay-full"><label for="pay-card-number">Card number</label>
+          <input type="text" id="pay-card-number" class="form-control" inputmode="numeric" placeholder="1234 5678 9012 3456" maxlength="19" autocomplete="off"></div>
+        <div class="pay-full"><label for="pay-card-name">Name on card</label>
+          <input type="text" id="pay-card-name" class="form-control" placeholder="As printed on card" autocomplete="off"></div>
+        <div><label for="pay-card-expiry">Expiry</label>
+          <input type="text" id="pay-card-expiry" class="form-control" inputmode="numeric" placeholder="MM/YY" maxlength="5" autocomplete="off"></div>
+        <div><label for="pay-card-cvv">CVV</label>
+          <input type="password" id="pay-card-cvv" class="form-control" inputmode="numeric" placeholder="•••" maxlength="4" autocomplete="off"></div>
+      </div>
+      <small>Demo site: no real payment is taken and card details are never saved.</small>`;
+    const num = document.getElementById("pay-card-number");
+    num.addEventListener("input", () => {
+      const d = num.value.replace(/\D/g, "").slice(0, 16);
+      num.value = d.replace(/(.{4})/g, "$1 ").trim();
+    });
+    const exp = document.getElementById("pay-card-expiry");
+    exp.addEventListener("input", () => {
+      let d = exp.value.replace(/\D/g, "").slice(0, 4);
+      if (d.length >= 3) d = d.slice(0, 2) + "/" + d.slice(2);
+      exp.value = d;
+    });
+    const cvv = document.getElementById("pay-card-cvv");
+    cvv.addEventListener("input", () => { cvv.value = cvv.value.replace(/\D/g, ""); });
+  } else if (method === "wallet") {
+    const total = computeCheckoutTotals(getSelectedRadioValue("delivery-speed", "standard")).total;
+    const enough = state.wallet.balance >= total;
+    panel.innerHTML = `
+      <p class="wallet-pay-line">CraveCash balance: <strong>₹${state.wallet.balance}</strong> &nbsp;•&nbsp; Order total: <strong>₹${total}</strong></p>
+      ${enough ? `<small>₹${total} will be deducted from your wallet.</small>`
+               : `<small class="pay-error">Not enough balance. Add money below or choose another method.</small>
+                  <div class="wallet-quick-amounts" style="margin-top:10px;">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="topUpFromCheckout(100)">+ ₹100</button>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="topUpFromCheckout(200)">+ ₹200</button>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="topUpFromCheckout(500)">+ ₹500</button>
+                  </div>`}`;
+  } else {
+    panel.innerHTML = `<small>Pay in cash (or scan the rider's QR code) when your order arrives.</small>`;
+  }
+}
+
+function topUpFromCheckout(amount) {
+  addMoneyToWallet(amount);
+  const sub = document.getElementById("wallet-option-sub");
+  if (sub) sub.textContent = `Balance: ₹${state.wallet.balance}`;
+  renderPaymentPanel();
+}
+
+function luhnValid(num) {
+  let sum = 0, alt = false;
+  for (let i = num.length - 1; i >= 0; i--) {
+    let n = parseInt(num[i], 10);
+    if (alt) { n *= 2; if (n > 9) n -= 9; }
+    sum += n; alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+// Returns {label} when the chosen payment method is valid, otherwise shows a toast and returns null.
+function validatePaymentDetails() {
+  const method = getSelectedRadioValue("payment-method", "cod");
+  if (method === "cod") return { label: "Cash on Delivery" };
+
+  if (method === "upi") {
+    const id = (document.getElementById("pay-upi-id") || {}).value || "";
+    if (!/^[\w.\-]+@[a-zA-Z]{2,}$/.test(id.trim())) {
+      showToast("Please enter a valid UPI ID (e.g. name@okhdfcbank).");
+      const el = document.getElementById("pay-upi-id"); if (el) el.focus();
+      return null;
+    }
+    return { label: "UPI • " + id.trim() };
+  }
+
+  if (method === "card") {
+    const num = ((document.getElementById("pay-card-number") || {}).value || "").replace(/\s/g, "");
+    const name = ((document.getElementById("pay-card-name") || {}).value || "").trim();
+    const exp = ((document.getElementById("pay-card-expiry") || {}).value || "").trim();
+    const cvv = ((document.getElementById("pay-card-cvv") || {}).value || "").trim();
+    if (!/^\d{16}$/.test(num) || !luhnValid(num)) { showToast("Please enter a valid 16-digit card number."); return null; }
+    if (name.length < 2) { showToast("Please enter the name on the card."); return null; }
+    const m = exp.match(/^(\d{2})\/(\d{2})$/);
+    if (!m || +m[1] < 1 || +m[1] > 12) { showToast("Please enter the expiry as MM/YY."); return null; }
+    const now = new Date();
+    const expDate = new Date(2000 + +m[2], +m[1], 0, 23, 59);
+    if (expDate < now) { showToast("This card has expired."); return null; }
+    if (!/^\d{3,4}$/.test(cvv)) { showToast("Please enter a valid CVV."); return null; }
+    return { label: "Card • •••• " + num.slice(-4) };
+  }
+
+  if (method === "wallet") return { label: "CraveCash Wallet" };
+  return { label: method };
+}
+
+// Add the wallet option + detail panel to the checkout page before it initialises.
+if (typeof initCheckoutPage === "function") {
+  const _origInitCheckout = initCheckoutPage;
+  initCheckoutPage = function () {
+    injectPaymentUI();
+    _origInitCheckout();
+    // keep the wallet panel's "order total" in step with the delivery speed
+    document.querySelectorAll('input[name="delivery-speed"]').forEach(i =>
+      i.addEventListener("change", () => { if (getSelectedRadioValue("payment-method") === "wallet") renderPaymentPanel(); }));
+  };
+}
+
+// ---------- ORDERS: CANCEL / BILL / CLEAR HISTORY ---------- //
+
+function cancelOrder(orderId) {
+  const order = state.activeOrder;
+  if (!order || order.orderId !== orderId) { showToast("This order can no longer be cancelled."); return; }
+  if (order.statusStep > 2) { showToast("Your order is already on the way and can't be cancelled."); return; }
+  if (!confirm("Cancel this order?")) return;
+
+  if (order.paymentMethod === "wallet") {
+    state.wallet.balance += order.total;
+    state.wallet.transactions.push({
+      id: "tx-" + Date.now(), type: "credit", amount: order.total, note: "Refund for cancelled order " + order.orderId,
+      date: new Date().toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })
+    });
+    localStorage.setItem("craverush_wallet", JSON.stringify(state.wallet));
+  }
+
+  order.cancelled = true;
+  order.statusStep = 1;
+  const inHistory = state.orderHistory.find(o => o.orderId === orderId);
+  if (inHistory) { inHistory.cancelled = true; inHistory.statusStep = 1; }
+  localStorage.setItem("craverush_order_history", JSON.stringify(state.orderHistory));
+
+  if (state.trackingTimer) clearInterval(state.trackingTimer);
+  state.activeOrder = null;
+  localStorage.removeItem("craverush_active_order");
+  closeModal("tracking-modal");
+  showToast(order.paymentMethod === "wallet" ? "Order cancelled. Refunded to CraveCash." : "Order cancelled.");
+  renderOrdersPage();
+}
+
+function viewOrderBill(orderId) {
+  const order = state.orderHistory.find(o => o.orderId === orderId) ||
+                (state.activeOrder && state.activeOrder.orderId === orderId ? state.activeOrder : null);
+  if (!order) { showToast("Sorry, we couldn't find that order."); return; }
+  const row = (a, b, cls = "") => `<div class="bill-row ${cls}"><span>${a}</span><span>${b}</span></div>`;
+  const pay = { cod: "Cash on Delivery", upi: "UPI", card: "Card", wallet: "CraveCash Wallet" }[order.paymentMethod] || order.paymentMethod;
+  const a = order.address || {};
+  openInfoModal("Order #" + escapeHtml(order.orderId), `
+    <p style="font-size:13px; color:var(--muted-3); margin-bottom:14px;">${escapeHtml(order.placedOn || "")} • ${escapeHtml(order.placedAt || "")}${order.cancelled ? " • <strong style='color:var(--chili)'>Cancelled</strong>" : ""}</p>
+    ${order.items.map(i => row(`${i.quantity} × ${escapeHtml(i.name)}`, "₹" + i.price * i.quantity)).join("")}
+    <div style="margin-top:12px;">
+      ${row("Subtotal", "₹" + order.subtotal)}
+      ${order.discount ? row("Promo discount", "-₹" + order.discount, "discount") : ""}
+      ${row("Delivery fee", order.deliveryFee ? "₹" + order.deliveryFee : "FREE")}
+      ${row("Platform fee", "₹" + order.platformFee)}
+      ${row("Taxes & GST", "₹" + order.taxes)}
+      ${row("Total", "₹" + order.total, "total")}
+    </div>
+    <p style="font-size:13px; color:var(--muted-1); margin-top:14px;"><strong>Paid via:</strong> ${escapeHtml(order.paymentDetail || pay)}</p>
+    ${a.house ? `<p style="font-size:13px; color:var(--muted-1); margin-top:6px;"><strong>Deliver to:</strong> ${escapeHtml(a.fullName)}, ${escapeHtml(a.house)}, ${escapeHtml(a.street)}, ${escapeHtml(a.city)} ${escapeHtml(a.pincode)}</p>` : ""}
+    <button type="button" class="btn btn-ghost" style="width:100%; margin-top:16px;" onclick="window.print()"><i class="fa-solid fa-print"></i> Print bill</button>`);
+}
+
+function clearOrderHistory() {
+  const past = state.orderHistory.filter(o => !state.activeOrder || o.orderId !== state.activeOrder.orderId);
+  if (!past.length) { showToast("There are no previous orders to clear."); return; }
+  if (!confirm("Delete all previous orders? This cannot be undone.")) return;
+  state.orderHistory = state.activeOrder ? state.orderHistory.filter(o => o.orderId === state.activeOrder.orderId) : [];
+  localStorage.setItem("craverush_order_history", JSON.stringify(state.orderHistory));
+  renderOrdersPage();
+  showToast("Order history cleared.");
+}
+
+function setupOrdersExtras() {
+  const root = document.getElementById("orders-page-root");
+  const hist = document.getElementById("order-history-container");
+  if (!root || !hist || document.getElementById("clear-history-btn")) return;
+  const btn = document.createElement("button");
+  btn.id = "clear-history-btn";
+  btn.type = "button";
+  btn.className = "btn btn-ghost btn-sm";
+  btn.style.marginTop = "14px";
+  btn.innerHTML = '<i class="fa-regular fa-trash-can"></i> Clear order history';
+  btn.addEventListener("click", clearOrderHistory);
+  hist.parentNode.appendChild(btn);
+}
+
+// ---------- RESTAURANTS / MENU: FILTERS & SORT ---------- //
+
+function buildToolbar(sortOptions, onSort, current) {
+  const sel = document.createElement("select");
+  sel.className = "form-control sort-select";
+  sel.setAttribute("aria-label", "Sort");
+  sel.innerHTML = sortOptions.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  sel.value = current || "default";
+  sel.addEventListener("change", () => onSort(sel.value));
+  return sel;
+}
+
+function setupRestaurantExtras() {
+  const grid = document.getElementById("restaurant-container");
+  if (!grid || document.getElementById("restaurant-toolbar")) return;
+  const bar = document.createElement("div");
+  bar.id = "restaurant-toolbar";
+  bar.className = "catalog-toolbar";
+
+  const pills = document.createElement("div");
+  pills.className = "category-bar";
+  pills.style.marginBottom = "0";
+  const cats = ["all", ...new Set(RESTAURANTS.map(r => r.category))];
+  pills.innerHTML = cats.map(c => `<span class="cat-pill ${c === state.activeRestaurantFilter ? "active" : ""}" data-rcat="${c}">${c === "all" ? "All" : c}</span>`).join("");
+  pills.addEventListener("click", e => {
+    const p = e.target.closest(".cat-pill");
+    if (!p) return;
+    pills.querySelectorAll(".cat-pill").forEach(x => x.classList.remove("active"));
+    p.classList.add("active");
+    state.activeRestaurantFilter = p.dataset.rcat;
+    renderRestaurants();
+  });
+
+  const sort = buildToolbar(
+    [["default", "Sort: Recommended"], ["rating", "Rating: High to Low"], ["time", "Fastest Delivery"], ["name", "Name: A to Z"]],
+    v => { state.restaurantSort = v; renderRestaurants(); }, state.restaurantSort);
+
+  bar.appendChild(pills);
+  bar.appendChild(sort);
+  grid.parentNode.insertBefore(bar, grid);
+}
+
+function setupMenuExtras() {
+  const veg = document.getElementById("veg-toggle");
+  if (!veg || document.getElementById("dish-sort")) return;
+  const sort = buildToolbar(
+    [["default", "Sort: Recommended"], ["price-asc", "Price: Low to High"], ["price-desc", "Price: High to Low"], ["rating", "Rating: High to Low"], ["time", "Fastest Prep"], ["name", "Name: A to Z"]],
+    v => { state.dishSort = v; renderDishes(); }, state.dishSort);
+  sort.id = "dish-sort";
+  veg.parentNode.appendChild(sort);
+}
+
+// ---------- HOMEPAGE: PROMOS, PARTNER FORMS, NEWSLETTER, APP LINKS ---------- //
+
+function setupPromoPills() {
+  document.querySelectorAll(".code-pill").forEach(pill => {
+    pill.style.cursor = "pointer";
+    pill.title = "Click to apply this code";
+    pill.addEventListener("click", () => {
+      const code = pill.textContent.trim().toUpperCase();
+      if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+      if (couponInput) couponInput.value = code;
+      if (state.cart.length === 0) { showToast(`Code ${code} copied! Add food to your bag, then apply it.`); return; }
+      applyCoupon();
+    });
+  });
+}
+
+const PARTNER_FORMS = {
+  restaurant: {
+    title: "Add your restaurant",
+    fields: [["Restaurant name", "text", "e.g. Sharma Sweets"], ["Owner name", "text", "Your full name"], ["Phone", "tel", "10-digit mobile"], ["Email", "email", "name@domain.com"], ["City", "text", "e.g. Chandigarh"]],
+    key: "craverush_partner_restaurants", ok: "Thanks! Our partnerships team will call you within 2 working days. 🍽️"
+  },
+  rider: {
+    title: "Become a rider",
+    fields: [["Full name", "text", "Your full name"], ["Phone", "tel", "10-digit mobile"], ["City", "text", "e.g. Chandigarh"], ["Vehicle", "select", ["Electric scooter", "Bicycle", "Motorbike"]]],
+    key: "craverush_rider_applications", ok: "Application received! We'll contact you for onboarding. 🛵"
+  },
+  business: {
+    title: "CraveRush for Business",
+    fields: [["Company name", "text", "e.g. Acme Pvt Ltd"], ["Contact person", "text", "Your full name"], ["Work email", "email", "name@company.com"], ["Phone", "tel", "10-digit mobile"], ["Team size", "select", ["1-20", "21-100", "101-500", "500+"]]],
+    key: "craverush_business_leads", ok: "Thanks! Our corporate team will reach out shortly. 💼"
+  }
+};
+
+function openPartnerForm(type) {
+  const cfg = PARTNER_FORMS[type];
+  if (!cfg) return;
+  const fields = cfg.fields.map(([label, kind, hint], i) => {
+    const id = `pf-${i}`;
+    const input = kind === "select"
+      ? `<select id="${id}" class="form-control">${hint.map(o => `<option>${o}</option>`).join("")}</select>`
+      : `<input type="${kind}" id="${id}" class="form-control" placeholder="${hint}" autocomplete="off">`;
+    return `<div class="form-group"><label for="${id}">${label}</label>${input}</div>`;
+  }).join("");
+  openInfoModal(cfg.title, `<form id="partner-form" novalidate>${fields}<button type="submit" class="btn btn-solid" style="width:100%; margin-top:6px;">Submit</button></form>`);
+  document.getElementById("partner-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const data = {};
+    for (let i = 0; i < cfg.fields.length; i++) {
+      const [label, kind] = cfg.fields[i];
+      const v = document.getElementById(`pf-${i}`).value.trim();
+      if (!v) { showToast(`Please fill in: ${label}`); return; }
+      if (kind === "email" && !isEmail(v)) { showToast("Please enter a valid email address."); return; }
+      if (kind === "tel" && !/^\d{10}$/.test(v.replace(/\D/g, "").slice(-10))) { showToast("Please enter a valid 10-digit phone number."); return; }
+      data[label] = v;
+    }
+    saveList(cfg.key, data);
+    closeModal("cr-info-modal");
+    showToast(cfg.ok);
+  });
+}
+
+function setupHomeExtras() {
+  document.querySelectorAll("[data-partner]").forEach(a =>
+    a.addEventListener("click", e => { e.preventDefault(); openPartnerForm(a.dataset.partner); }));
+
+  document.querySelectorAll("[data-app]").forEach(a =>
+    a.addEventListener("click", e => {
+      e.preventDefault();
+      showToast(`The ${a.dataset.app} app is coming soon — you'll be first to know! 📱`);
+    }));
+
+  // Logo "#" links: scroll to top instead of jumping/reloading
+  document.querySelectorAll('a.logo[href="#"]').forEach(a =>
+    a.addEventListener("click", e => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
+
+  // Newsletter box in the footer
+  const brand = document.querySelector(".footer-brand");
+  if (brand && !document.getElementById("newsletter-form")) {
+    const f = document.createElement("form");
+    f.id = "newsletter-form";
+    f.className = "newsletter-form";
+    f.noValidate = true;
+    f.innerHTML = `<input type="email" id="newsletter-email" placeholder="Your email for offers" aria-label="Email for offers"><button type="submit">Subscribe</button>`;
+    f.addEventListener("submit", e => {
+      e.preventDefault();
+      const v = document.getElementById("newsletter-email").value.trim();
+      if (!isEmail(v)) { showToast("Please enter a valid email address."); return; }
+      const subs = JSON.parse(localStorage.getItem("craverush_newsletter") || "[]");
+      if (subs.includes(v.toLowerCase())) { showToast("You're already subscribed. 😊"); return; }
+      subs.push(v.toLowerCase());
+      localStorage.setItem("craverush_newsletter", JSON.stringify(subs));
+      f.reset();
+      showToast("Subscribed! Use WELCOME100 on your first order. 🎁");
+    });
+    brand.appendChild(f);
+  }
+}
+
+// ---------- ABOUT PAGE: FAQ, CONTACT, CRAVEPASS ---------- //
+
+function setupAboutExtras() {
+  const faq = document.getElementById("faq-list");
+  if (faq) {
+    faq.addEventListener("click", e => {
+      const q = e.target.closest(".faq-q");
+      if (!q) return;
+      const item = q.parentElement;
+      const open = item.classList.contains("open");
+      faq.querySelectorAll(".faq-item.open").forEach(i => i.classList.remove("open"));
+      if (!open) item.classList.add("open");
+    });
+    const search = document.getElementById("faq-search");
+    if (search) search.addEventListener("input", () => {
+      const q = search.value.trim().toLowerCase();
+      let shown = 0;
+      faq.querySelectorAll(".faq-item").forEach(i => {
+        const hit = !q || i.textContent.toLowerCase().includes(q);
+        i.style.display = hit ? "" : "none";
+        if (hit) shown++;
+      });
+      document.getElementById("faq-empty").style.display = shown ? "none" : "block";
+    });
+  }
+
+  const form = document.getElementById("contact-form");
+  if (form) {
+    if (state.user) {
+      document.getElementById("contact-name").value = state.user.name || "";
+      document.getElementById("contact-email").value = state.user.email || "";
+    }
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const name = document.getElementById("contact-name").value.trim();
+      const email = document.getElementById("contact-email").value.trim();
+      const topic = document.getElementById("contact-topic").value;
+      const message = document.getElementById("contact-message").value.trim();
+      if (name.length < 2) { showToast("Please enter your name."); return; }
+      if (!isEmail(email)) { showToast("Please enter a valid email address."); return; }
+      if (message.length < 10) { showToast("Please write a few more words so we can help."); return; }
+      saveList("craverush_contact_messages", { name, email, topic, message });
+      form.reset();
+      showToast("Message sent! We'll reply within 24 hours. ✉️");
+    });
+  }
+
+  const passBtns = document.querySelectorAll("[data-pass]");
+  if (passBtns.length) {
+    renderPassStatus();
+    passBtns.forEach(b => b.addEventListener("click", () => buyCravePass(b.dataset.pass)));
+  }
+
+  // Scroll to #help / #contact / #cravepass after the loader hides
+  if (location.hash) {
+    const t = document.querySelector(location.hash);
+    if (t) setTimeout(() => t.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
+  }
+}
+
+function renderPassStatus() {
+  const el = document.getElementById("pass-status");
+  if (!el) return;
+  if (isCravePassActive()) {
+    el.innerHTML = `<i class="fa-solid fa-circle-check"></i> You're a CravePass member — valid until <strong>${new Date(state.user.cravePass.expires).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })}</strong>. Standard delivery is free on every order.`;
+  } else {
+    el.textContent = "";
+  }
+}
+
+function buyCravePass(plan) {
+  if (!state.user) { showToast("Please sign in to get CravePass."); openAuthModal(); return; }
+  const price = plan === "yearly" ? 999 : 149;
+  if (isCravePassActive() && !confirm("You already have an active CravePass. Extend it?")) return;
+  if (state.wallet.balance < price) {
+    showToast(`You need ₹${price} in CraveCash. Your balance is ₹${state.wallet.balance} — add money from your account's Wallet tab.`);
+    openAuthModal();
+    switchAccountTab("wallet");
+    return;
+  }
+  if (!confirm(`Pay ₹${price} from CraveCash for the ${plan} CravePass?`)) return;
+
+  state.wallet.balance -= price;
+  state.wallet.transactions.push({
+    id: "tx-" + Date.now(), type: "debit", amount: price, note: `CravePass (${plan})`,
+    date: new Date().toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })
+  });
+  localStorage.setItem("craverush_wallet", JSON.stringify(state.wallet));
+
+  const base = isCravePassActive() ? new Date(state.user.cravePass.expires) : new Date();
+  base.setDate(base.getDate() + (plan === "yearly" ? 365 : 30));
+  state.user.cravePass = { plan, expires: base.toISOString() };
+  localStorage.setItem("craverush_user", JSON.stringify(state.user));
+  const accounts = getAccounts();
+  const acc = accounts.find(a => a.email.toLowerCase() === state.user.email.toLowerCase());
+  if (acc) { acc.cravePass = state.user.cravePass; saveAccounts(accounts); }
+
+  renderPassStatus();
+  updateCartUI();
+  showToast("Welcome to CravePass! 🎉 Free delivery unlocked.");
+}
+
+// ---------- GLOBAL: ESC KEY, BACK-TO-TOP, SMOOTH SCROLL ---------- //
+
+function setupGlobalExtras() {
+  document.documentElement.style.scrollBehavior = "smooth";
+
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    document.querySelectorAll(".modal-overlay.active").forEach(m => closeModal(m.id));
+    toggleCartDrawer(false);
+    const dd = document.getElementById("search-results-dropdown");
+    if (dd) dd.classList.remove("active");
+  });
+
+  // Click outside any modal to close it
+  document.querySelectorAll(".modal-overlay").forEach(m =>
+    m.addEventListener("click", e => { if (e.target === m) closeModal(m.id); }));
+
+  // Enter key in coupon box applies the coupon
+  if (couponInput) couponInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); applyCoupon(); } });
+
+  // Close the mobile menu after tapping a nav link
+  const menuToggle = document.getElementById("menu-toggle");
+  document.querySelectorAll(".nav-links a").forEach(a =>
+    a.addEventListener("click", () => { if (menuToggle) menuToggle.checked = false; }));
+
+  // Back-to-top button
+  if (!document.getElementById("back-to-top")) {
+    const b = document.createElement("button");
+    b.id = "back-to-top";
+    b.type = "button";
+    b.setAttribute("aria-label", "Back to top");
+    b.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';
+    b.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+    document.body.appendChild(b);
+    window.addEventListener("scroll", () => b.classList.toggle("show", window.scrollY > 500), { passive: true });
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setupGlobalExtras();
+  setupPromoPills();
+  setupHomeExtras();
+  setupAboutExtras();
+  setupRestaurantExtras();
+  setupMenuExtras();
+  setupOrdersExtras();
+});

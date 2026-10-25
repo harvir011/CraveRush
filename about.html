@@ -264,6 +264,73 @@
     </div>
   </section>
 
+  <!-- CRAVEPASS MEMBERSHIP -->
+  <section class="section" id="cravepass">
+    <div class="wrap">
+      <div class="section-head" style="justify-content:center; text-align:center; flex-direction:column; align-items:center;">
+        <p class="eyebrow">CravePass</p>
+        <h2>One small subscription. Free delivery on every order.</h2>
+      </div>
+      <div class="pass-grid">
+        <div class="pass-card">
+          <h3>Monthly</h3>
+          <div class="pass-price">₹149<span>/month</span></div>
+          <ul><li>Free standard delivery</li><li>Secret menu drops</li><li>Cancel anytime</li></ul>
+          <button type="button" class="btn btn-ghost" data-pass="monthly">Get Monthly Pass</button>
+        </div>
+        <div class="pass-card pass-featured">
+          <span class="pass-ribbon">Best value</span>
+          <h3>Yearly</h3>
+          <div class="pass-price">₹999<span>/year</span></div>
+          <ul><li>Everything in Monthly</li><li>Save ₹789 a year</li><li>Priority dispatch</li></ul>
+          <button type="button" class="btn btn-solid" data-pass="yearly">Get Yearly Pass</button>
+        </div>
+      </div>
+      <p id="pass-status" class="pass-status"></p>
+    </div>
+  </section>
+
+  <!-- HELP CENTRE / FAQ -->
+  <section class="section" id="help" style="background:var(--card); border-top:1px solid var(--line); border-bottom:1px solid var(--line);">
+    <div class="wrap">
+      <div class="section-head" style="justify-content:center; text-align:center; flex-direction:column; align-items:center;">
+        <p class="eyebrow">Help Centre</p>
+        <h2>Frequently asked questions</h2>
+      </div>
+      <div class="faq-search"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="faq-search" class="form-control" placeholder="Search help topics..." autocomplete="off"></div>
+      <div class="faq-list" id="faq-list">
+        <div class="faq-item"><button type="button" class="faq-q">How do I track my order?<i class="fa-solid fa-chevron-down"></i></button><div class="faq-a"><p>Open the <a href="orders.html">Orders</a> page and press Track on your current order. The status moves from Placed to Preparing, On the Way and Delivered.</p></div></div>
+        <div class="faq-item"><button type="button" class="faq-q">Which coupon codes can I use?<i class="fa-solid fa-chevron-down"></i></button><div class="faq-a"><p>CRAVE50 gives 50% off (up to ₹150) on orders of ₹199 or more. WELCOME100 gives a flat ₹100 off. Apply them in your food bag.</p></div></div>
+        <div class="faq-item"><button type="button" class="faq-q">Can I cancel my order?<i class="fa-solid fa-chevron-down"></i></button><div class="faq-a"><p>Yes, while the kitchen is still receiving or preparing it. Go to Orders and press Cancel. Wallet payments are refunded to CraveCash instantly.</p></div></div>
+        <div class="faq-item"><button type="button" class="faq-q">What payment methods are accepted?<i class="fa-solid fa-chevron-down"></i></button><div class="faq-a"><p>Cash on delivery, UPI, credit/debit cards and your CraveCash wallet.</p></div></div>
+        <div class="faq-item"><button type="button" class="faq-q">How much is delivery?<i class="fa-solid fa-chevron-down"></i></button><div class="faq-a"><p>Standard delivery is ₹49, and free above ₹499 or with CravePass. Express (15-20 min) is ₹89.</p></div></div>
+        <div class="faq-item"><button type="button" class="faq-q">How do I add money to my wallet?<i class="fa-solid fa-chevron-down"></i></button><div class="faq-a"><p>Sign in, open your account (top right), choose the Wallet tab and pick an amount.</p></div></div>
+      </div>
+      <p id="faq-empty" class="faq-empty" style="display:none;">No matching topics. Send us a message below and we will help.</p>
+    </div>
+  </section>
+
+  <!-- CONTACT US -->
+  <section class="section" id="contact">
+    <div class="wrap">
+      <div class="section-head" style="justify-content:center; text-align:center; flex-direction:column; align-items:center;">
+        <p class="eyebrow">Contact Us</p>
+        <h2>Still stuck? Talk to a human.</h2>
+      </div>
+      <form id="contact-form" class="contact-form" novalidate>
+        <div class="contact-row">
+          <div class="form-group"><label>Your name</label><input type="text" id="contact-name" class="form-control" placeholder="e.g. Michelle Sharma"></div>
+          <div class="form-group"><label>Email</label><input type="email" id="contact-email" class="form-control" placeholder="name@domain.com"></div>
+        </div>
+        <div class="form-group"><label>Topic</label>
+          <select id="contact-topic" class="form-control"><option>Order issue</option><option>Payment or refund</option><option>Account help</option><option>Feedback</option><option>Other</option></select>
+        </div>
+        <div class="form-group"><label>Message</label><textarea id="contact-message" class="form-control" rows="4" placeholder="How can we help?"></textarea></div>
+        <button type="submit" class="btn btn-solid" style="width:100%;">Send message</button>
+      </form>
+    </div>
+  </section>
+
   <!-- CTA BAND -->
   <section class="section">
     <div class="wrap">
@@ -305,10 +372,12 @@
         <p style="font-size:13.5px; margin-top:6px;">Add delicious dishes from the menu to satisfy your cravings.</p>
       </div>
 
+      <button type="button" id="cart-clear-btn" class="cart-clear-btn" style="display:none;" onclick="clearCart()"><i class="fa-regular fa-trash-can"></i> Clear bag</button>
       <div id="cart-items-container">
         <!-- Rendered dynamically by JS -->
       </div>
 
+      <div id="coupon-applied-tag" class="coupon-applied-tag" style="display:none;"></div>
       <div class="coupon-box">
         <input type="text" id="coupon-code" placeholder="ENTER COUPON (CRAVE50)">
         <button class="coupon-btn" onclick="applyCoupon()">APPLY</button>
@@ -325,12 +394,12 @@
         <span id="cart-discount">-₹0</span>
       </div>
       <div class="bill-row">
-        <span>Delivery Fee (20-Min Express)</span>
-        <span>FREE</span>
+        <span>Delivery Fee</span>
+        <span id="cart-delivery">FREE</span>
       </div>
       <div class="bill-row">
         <span>Taxes &amp; Govt Charges (5%)</span>
-        <span>Included</span>
+        <span id="cart-taxes">₹0</span>
       </div>
       <div class="bill-row total">
         <span>To Pay</span>

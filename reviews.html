@@ -203,10 +203,12 @@
         <p style="font-size:13.5px; margin-top:6px;">Add delicious dishes from the menu to satisfy your cravings.</p>
       </div>
 
+      <button type="button" id="cart-clear-btn" class="cart-clear-btn" style="display:none;" onclick="clearCart()"><i class="fa-regular fa-trash-can"></i> Clear bag</button>
       <div id="cart-items-container">
         <!-- Rendered dynamically by JS -->
       </div>
 
+      <div id="coupon-applied-tag" class="coupon-applied-tag" style="display:none;"></div>
       <div class="coupon-box">
         <input type="text" id="coupon-code" placeholder="ENTER COUPON (CRAVE50)">
         <button class="coupon-btn" onclick="applyCoupon()">APPLY</button>
@@ -223,12 +225,12 @@
         <span id="cart-discount">-₹0</span>
       </div>
       <div class="bill-row">
-        <span>Delivery Fee (20-Min Express)</span>
-        <span>FREE</span>
+        <span>Delivery Fee</span>
+        <span id="cart-delivery">FREE</span>
       </div>
       <div class="bill-row">
         <span>Taxes &amp; Govt Charges (5%)</span>
-        <span>Included</span>
+        <span id="cart-taxes">₹0</span>
       </div>
       <div class="bill-row total">
         <span>To Pay</span>
